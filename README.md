@@ -84,10 +84,6 @@ Current version: **1.0.2**
 - .NET 11.0 or higher
 - A key management service (from Mrbr.Service.KeyManager)
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues on GitHub.
-
 ## License
 
 Please refer to the LICENSE file in the repository for licensing information.
