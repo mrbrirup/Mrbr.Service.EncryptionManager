@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Mrbr.Service.EncryptionManager.ConsoleTest/Mrbr.Service.EncryptionManager.ConsoleTest.csproj" />
+  <Project Path="Mrbr.Service.EncryptionManager/Mrbr.Service.EncryptionManager.csproj" />
+</Solution>
