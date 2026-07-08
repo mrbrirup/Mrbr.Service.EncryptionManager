@@ -288,7 +288,10 @@ public static class CryptographicArtifactSerializer {
     }
 
     private static (ulong KeyHandle, string Artifact) SplitKeyHandleArtifact(string artifact) {
-        ArgumentException.ThrowIfNullOrWhiteSpace(artifact);
+        ArgumentNullException.ThrowIfNull(artifact);
+        if (string.IsNullOrWhiteSpace(artifact)) {
+            throw new ArgumentException("Artifact cannot be empty or whitespace.", nameof(artifact));
+        }
 
         int delimiterIndex = artifact.IndexOf(Delimiter, StringComparison.Ordinal);
         if (delimiterIndex <= 0 || delimiterIndex == artifact.Length - 1) {

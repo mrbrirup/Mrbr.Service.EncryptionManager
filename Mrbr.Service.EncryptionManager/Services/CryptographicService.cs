@@ -210,11 +210,11 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
         HmacOptions? hmacOptions = null) {
         var options = ResolveHmacOptions(hmacOptions);
         int hmacLength = GetHmacLength(options.Algorithm);
+        int keySize = GetKeySizeInBytes(options.KeySizeInBits);
         if (expectedHmac.Length != hmacLength) {
             return false;
         }
 
-        int keySize = GetKeySizeInBytes(options.KeySizeInBits);
         Span<byte> key = stackalloc byte[keySize];
         Span<byte> computedHmac = stackalloc byte[hmacLength];
         try {

@@ -161,6 +161,18 @@ For callers that want separate fields, use the structured result objects directl
 
 `EncryptionOptions.AssociatedData` is authenticated by AES-GCM but is not included in the artifact. The `KeyHandle` is also bound into AES-GCM associated data internally, so a different handle cannot validate the same artifact.
 
+## Validation And Errors
+
+Unsupported algorithm enum values and unsupported HMAC key sizes throw `NotSupportedException`.
+
+Destination buffers that are too small throw `ArgumentException` with the destination parameter name. Malformed AES-GCM cipher artifacts shorter than `nonce[12] + tag[16]` also throw `ArgumentException`.
+
+Validation methods return `false` for mismatched values, wrong-length hashes/HMACs, and HMAC handles that KeyManager cannot replay. Invalid validation options still throw.
+
+AES-GCM decryption throws `CryptographicException` when authentication fails, including tampered nonce, tag, ciphertext, associated data, or key handle.
+
+Artifact parsers throw `ArgumentNullException` for null text input, `ArgumentException` for empty or whitespace keyed text input, and `FormatException` for malformed handle, Base64, Hex, or keyed artifact formats.
+
 ## Algorithm Status
 
 `SymmetricEncryptionAlgorithms.AES128`, `AES192`, and `AES256` are implemented through AES-GCM.

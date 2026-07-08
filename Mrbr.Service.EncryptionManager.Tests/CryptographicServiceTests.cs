@@ -43,6 +43,46 @@ public class CryptographicServiceTests {
         Assert.Equal(plainText, decrypted);
     }
 
+    [Fact]
+    public void Encrypt_RejectsUnsupportedSymmetricAlgorithm() {
+        var service = CreateService();
+        var options = new EncryptionOptions { Algorithm = (SymmetricEncryptionAlgorithms)999 };
+
+        Assert.Throws<NotSupportedException>(() => service.Encrypt("unsupported aes"u8.ToArray(), options));
+    }
+
+    [Fact]
+    public void Decrypt_RejectsUnsupportedSymmetricAlgorithm() {
+        var service = CreateService();
+        var encrypted = service.Encrypt("unsupported aes decrypt"u8.ToArray());
+        var options = new EncryptionOptions { Algorithm = (SymmetricEncryptionAlgorithms)999 };
+
+        Assert.Throws<NotSupportedException>(() => service.Decrypt(encrypted.KeyHandle, encrypted.Cipher, options));
+    }
+
+    [Fact]
+    public void Encrypt_RejectsTooSmallDestination() {
+        var service = CreateService();
+        byte[] plainText = Encoding.UTF8.GetBytes("small cipher destination");
+        byte[] cipher = GC.AllocateUninitializedArray<byte>(CryptographicService.GetCipherLength(plainText.Length) - 1);
+
+        var exception = Assert.Throws<ArgumentException>(() => service.Encrypt(plainText, cipher, out _));
+
+        Assert.Equal("cipherDestination", exception.ParamName);
+    }
+
+    [Fact]
+    public void Decrypt_RejectsTooSmallDestination() {
+        var service = CreateService();
+        byte[] plainText = Encoding.UTF8.GetBytes("small plain text destination");
+        var encrypted = service.Encrypt(plainText);
+        byte[] decrypted = GC.AllocateUninitializedArray<byte>(plainText.Length - 1);
+
+        var exception = Assert.Throws<ArgumentException>(() => service.Decrypt(encrypted.KeyHandle, encrypted.Cipher, decrypted));
+
+        Assert.Equal("plainTextDestination", exception.ParamName);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(12)]
@@ -82,6 +122,18 @@ public class CryptographicServiceTests {
         Assert.ThrowsAny<CryptographicException>(() => service.Decrypt(encrypted.KeyHandle, encrypted.Cipher, decryptOptions));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(27)]
+    public void Decrypt_RejectsMalformedCipherLength(int cipherLength) {
+        var service = CreateService();
+        byte[] cipher = new byte[cipherLength];
+
+        var exception = Assert.Throws<ArgumentException>(() => service.Decrypt(0, cipher));
+
+        Assert.Equal("cipherLength", exception.ParamName);
+    }
+
     [Fact]
     public void TextHelpers_RoundTripAsKeyHandleBase64Payload() {
         var service = CreateService();
@@ -92,6 +144,17 @@ public class CryptographicServiceTests {
 
         Assert.Contains(':', encrypted);
         Assert.Equal(plainText, decrypted);
+    }
+
+    [Fact]
+    public void TextHelpers_RejectInvalidTextInputs() {
+        var service = CreateService();
+        string? nullText = null;
+
+        Assert.Throws<ArgumentNullException>(() => service.EncryptText(nullText!));
+        Assert.Throws<ArgumentNullException>(() => service.DecryptText(nullText!));
+        Assert.Throws<ArgumentException>(() => service.DecryptText(""));
+        Assert.Throws<ArgumentException>(() => service.DecryptText("   "));
     }
 
     [Fact]
@@ -119,6 +182,14 @@ public class CryptographicServiceTests {
         Assert.Equal(rawArtifact, parsedKeyedHex.Artifact);
         Assert.Equal(encrypted.KeyHandle, parsedKeyedBytes.KeyHandle);
         Assert.Equal(rawArtifact, parsedKeyedBytes.Artifact);
+    }
+
+    [Fact]
+    public void ArtifactSerializer_RejectsInvalidBase64AndHexArtifacts() {
+        Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromBase64("not-base64"));
+        Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromHex("GG"));
+        Assert.Throws<ArgumentNullException>(() => CryptographicArtifactSerializer.FromBase64(null!));
+        Assert.Throws<ArgumentNullException>(() => CryptographicArtifactSerializer.FromHex(null!));
     }
 
     [Fact]
@@ -161,7 +232,9 @@ public class CryptographicServiceTests {
 
     [Fact]
     public void ArtifactSerializer_RejectsInvalidKeyedTextArtifacts() {
+        Assert.Throws<ArgumentNullException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64(null!));
         Assert.Throws<ArgumentException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64(""));
+        Assert.Throws<ArgumentException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64("   "));
 
         Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64("123"));
         Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64(":AA=="));
@@ -239,6 +312,17 @@ public class CryptographicServiceTests {
     }
 
     [Fact]
+    public void Hash_RejectsTooSmallDestination() {
+        var service = CreateService();
+        byte[] data = Encoding.UTF8.GetBytes("small hash destination");
+        byte[] destination = GC.AllocateUninitializedArray<byte>(CryptographicService.GetHashLength(HashingAlgorithms.SHA256) - 1);
+
+        var exception = Assert.Throws<ArgumentException>(() => service.Hash(data, destination));
+
+        Assert.Equal("hashDestination", exception.ParamName);
+    }
+
+    [Fact]
     public void ValidateHash_ReturnsFalse_ForTamperedHash() {
         var service = CreateService();
         byte[] data = Encoding.UTF8.GetBytes("hash tamper");
@@ -249,11 +333,26 @@ public class CryptographicServiceTests {
     }
 
     [Fact]
+    public void ValidateHash_ReturnsFalse_ForWrongLengthHash() {
+        var service = CreateService();
+
+        Assert.False(service.ValidateHash("wrong length hash"u8.ToArray(), []));
+    }
+
+    [Fact]
     public void Hash_RejectsUnsupportedDeclaredAlgorithm() {
         var service = CreateService();
 
         Assert.Throws<NotSupportedException>(() =>
             service.Hash(Encoding.UTF8.GetBytes("legacy"), new HashOptions { Algorithm = HashingAlgorithms.MD5 }));
+    }
+
+    [Fact]
+    public void Hash_RejectsUnsupportedEnumValue() {
+        var service = CreateService();
+
+        Assert.Throws<NotSupportedException>(() =>
+            service.Hash("invalid enum hash"u8.ToArray(), new HashOptions { Algorithm = (HashingAlgorithms)999 }));
     }
 
     [Theory]
@@ -299,6 +398,17 @@ public class CryptographicServiceTests {
     }
 
     [Fact]
+    public void Hmac_RejectsTooSmallDestination() {
+        var service = CreateService();
+        byte[] data = Encoding.UTF8.GetBytes("small hmac destination");
+        byte[] destination = GC.AllocateUninitializedArray<byte>(CryptographicService.GetHmacLength(HmacAlgorithms.HMACSHA256) - 1);
+
+        var exception = Assert.Throws<ArgumentException>(() => service.Hmac(data, destination, out _));
+
+        Assert.Equal("hmacDestination", exception.ParamName);
+    }
+
+    [Fact]
     public void ValidateHmac_ReturnsFalse_ForTamperedInputs() {
         var service = CreateService();
         byte[] data = Encoding.UTF8.GetBytes("hmac tamper");
@@ -311,6 +421,45 @@ public class CryptographicServiceTests {
         Assert.False(service.ValidateHmac(result.KeyHandle, tamperedData, result.Hmac));
         Assert.False(service.ValidateHmac(result.KeyHandle, data, tamperedHmac));
         Assert.False(service.ValidateHmac(tamperedKeyHandle, data, result.Hmac));
+    }
+
+    [Fact]
+    public void ValidateHmac_ReturnsFalse_ForWrongLengthHmac() {
+        var service = CreateService();
+        byte[] data = Encoding.UTF8.GetBytes("wrong length hmac");
+        var result = service.Hmac(data);
+
+        Assert.False(service.ValidateHmac(result.KeyHandle, data, []));
+    }
+
+    [Fact]
+    public void Hmac_RejectsUnsupportedAlgorithm() {
+        var service = CreateService();
+
+        Assert.Throws<NotSupportedException>(() =>
+            service.Hmac("invalid hmac algorithm"u8.ToArray(), new HmacOptions { Algorithm = (HmacAlgorithms)999 }));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(127)]
+    [InlineData(129)]
+    [InlineData(512)]
+    public void Hmac_RejectsUnsupportedKeySize(int keySizeInBits) {
+        var service = CreateService();
+        var options = new HmacOptions { KeySizeInBits = keySizeInBits };
+
+        Assert.Throws<NotSupportedException>(() => service.Hmac("invalid hmac key size"u8.ToArray(), options));
+    }
+
+    [Fact]
+    public void ValidateHmac_RejectsUnsupportedKeySize() {
+        var service = CreateService();
+        byte[] data = Encoding.UTF8.GetBytes("invalid validation key size");
+        var result = service.Hmac(data);
+        var options = new HmacOptions { KeySizeInBits = 512 };
+
+        Assert.Throws<NotSupportedException>(() => service.ValidateHmac(result.KeyHandle, data, result.Hmac, options));
     }
 
     [Fact]
