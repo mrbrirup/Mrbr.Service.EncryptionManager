@@ -12,7 +12,7 @@ Implemented:
 - HMAC-SHA-256, HMAC-SHA-384, and HMAC-SHA-512 message authentication
 - Constructor-injected `IKeyService` from `Mrbr.Service.KeyManager`
 - Byte-first APIs with UTF-8 string convenience wrappers
-- Artifact serializers for common binary and text shapes
+- Typed artifact serializers for common binary and text shapes
 
 Planned:
 
@@ -145,7 +145,17 @@ bool valid = cryptographicService.ValidateHmac(
 - `{Hex(artifact)}`
 - `{handle}:{Hex(artifact)}`
 
-For callers that want separate fields, use the structured result objects directly.
+For result-specific helpers, use the extension methods on `EncryptionResult` and `HmacResult`:
+
+```csharp
+string cipherPayload = encrypted.ToKeyHandleCipherBase64();
+string hmacPayload = hmac.ToKeyHandleHmacBase64();
+
+byte[] rawCipher = encrypted.ToArtifactBytes(CryptographicArtifactFormat.Raw);
+string hmacHex = hmac.ToArtifactText(CryptographicArtifactFormat.KeyHandleHex);
+```
+
+For callers that want separate fields, use the structured result objects directly or convert them to `KeyedCryptographicArtifact` with `ToKeyedArtifact()`.
 
 ## Associated Data
 

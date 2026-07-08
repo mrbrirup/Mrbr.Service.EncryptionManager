@@ -122,6 +122,71 @@ public class CryptographicServiceTests {
     }
 
     [Fact]
+    public void EncryptionResultSerializer_RoundTripsTypedFormats() {
+        var service = CreateService();
+        var encrypted = service.Encrypt(Encoding.UTF8.GetBytes("typed encryption serializer formats"));
+
+        byte[] rawCipher = encrypted.ToCipherBytes();
+        string base64 = encrypted.ToCipherBase64();
+        string hex = encrypted.ToCipherHex();
+        byte[] keyedCipherBytes = encrypted.ToKeyHandleCipherBytes();
+        string keyedBase64 = encrypted.ToKeyHandleCipherBase64();
+        string keyedHex = encrypted.ToKeyHandleCipherHex();
+        var keyedArtifact = encrypted.ToKeyedArtifact();
+
+        Assert.NotSame(encrypted.Cipher, rawCipher);
+        Assert.Equal(encrypted.Cipher, rawCipher);
+        Assert.Equal(encrypted.Cipher, CryptographicArtifactSerializer.FromBase64(base64));
+        Assert.Equal(encrypted.Cipher, CryptographicArtifactSerializer.FromHex(hex));
+        Assert.Equal(encrypted.Cipher, encrypted.ToArtifactBytes(CryptographicArtifactFormat.Raw));
+        Assert.Equal(base64, encrypted.ToArtifactText(CryptographicArtifactFormat.Base64));
+        Assert.Equal(hex, encrypted.ToArtifactText(CryptographicArtifactFormat.Hex));
+
+        var parsedKeyedBytes = CryptographicArtifactSerializer.FromKeyHandleArtifactBytes(keyedCipherBytes);
+        var parsedKeyedBase64 = CryptographicArtifactSerializer.FromKeyHandleBase64(keyedBase64);
+        var parsedKeyedHex = CryptographicArtifactSerializer.FromKeyHandleHex(keyedHex);
+
+        Assert.Equal(encrypted.KeyHandle, keyedArtifact.KeyHandle);
+        Assert.Equal(encrypted.Cipher, keyedArtifact.Artifact);
+        Assert.NotSame(encrypted.Cipher, keyedArtifact.Artifact);
+        Assert.Equal(parsedKeyedBytes.Artifact, encrypted.Cipher);
+        Assert.Equal(parsedKeyedBase64.Artifact, encrypted.Cipher);
+        Assert.Equal(parsedKeyedHex.Artifact, encrypted.Cipher);
+        Assert.Equal(keyedCipherBytes, encrypted.ToArtifactBytes(CryptographicArtifactFormat.KeyHandleRaw));
+        Assert.Equal(keyedBase64, encrypted.ToArtifactText(CryptographicArtifactFormat.KeyHandleBase64));
+        Assert.Equal(keyedHex, encrypted.ToArtifactText(CryptographicArtifactFormat.KeyHandleHex));
+        Assert.Throws<NotSupportedException>(() => encrypted.ToArtifactBytes(CryptographicArtifactFormat.Base64));
+        Assert.Throws<NotSupportedException>(() => encrypted.ToArtifactText(CryptographicArtifactFormat.Raw));
+    }
+
+    [Fact]
+    public void ArtifactSerializer_RejectsInvalidKeyedTextArtifacts() {
+        Assert.Throws<ArgumentException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64(""));
+
+        Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64("123"));
+        Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64(":AA=="));
+        Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64("abc:AA=="));
+        Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64("123:"));
+        Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleBase64("123:not-base64"));
+        Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleHex("123:GG"));
+    }
+
+    [Fact]
+    public void ArtifactSerializer_RejectsInvalidKeyedRawArtifacts() {
+        byte[][] invalidArtifacts = [
+            [],
+            Encoding.ASCII.GetBytes("123"),
+            Encoding.ASCII.GetBytes(":artifact"),
+            Encoding.ASCII.GetBytes("abc:artifact"),
+            Encoding.ASCII.GetBytes("123:")
+        ];
+
+        foreach (byte[] artifact in invalidArtifacts) {
+            Assert.Throws<FormatException>(() => CryptographicArtifactSerializer.FromKeyHandleArtifactBytes(artifact));
+        }
+    }
+
+    [Fact]
     public void AddEncryptionManager_ResolvesCryptographicService_WhenKeyServiceIsRegistered() {
         var services = new ServiceCollection();
         services.AddSingleton<IKeyService>(CreateKeyService());
@@ -267,6 +332,44 @@ public class CryptographicServiceTests {
         Assert.Equal(hmac.Hmac, parsedKeyedHex.Artifact);
         Assert.Equal(hmac.KeyHandle, parsedKeyedBytes.KeyHandle);
         Assert.Equal(hmac.Hmac, parsedKeyedBytes.Artifact);
+    }
+
+    [Fact]
+    public void HmacResultSerializer_RoundTripsTypedFormats() {
+        var service = CreateService();
+        var hmac = service.Hmac(Encoding.UTF8.GetBytes("typed hmac serializer formats"));
+
+        byte[] rawHmac = hmac.ToHmacBytes();
+        string base64 = hmac.ToHmacBase64();
+        string hex = hmac.ToHmacHex();
+        byte[] keyedHmacBytes = hmac.ToKeyHandleHmacBytes();
+        string keyedBase64 = hmac.ToKeyHandleHmacBase64();
+        string keyedHex = hmac.ToKeyHandleHmacHex();
+        var keyedArtifact = hmac.ToKeyedArtifact();
+
+        Assert.NotSame(hmac.Hmac, rawHmac);
+        Assert.Equal(hmac.Hmac, rawHmac);
+        Assert.Equal(hmac.Hmac, CryptographicArtifactSerializer.FromBase64(base64));
+        Assert.Equal(hmac.Hmac, CryptographicArtifactSerializer.FromHex(hex));
+        Assert.Equal(hmac.Hmac, hmac.ToArtifactBytes(CryptographicArtifactFormat.Raw));
+        Assert.Equal(base64, hmac.ToArtifactText(CryptographicArtifactFormat.Base64));
+        Assert.Equal(hex, hmac.ToArtifactText(CryptographicArtifactFormat.Hex));
+
+        var parsedKeyedBytes = CryptographicArtifactSerializer.FromKeyHandleArtifactBytes(keyedHmacBytes);
+        var parsedKeyedBase64 = CryptographicArtifactSerializer.FromKeyHandleBase64(keyedBase64);
+        var parsedKeyedHex = CryptographicArtifactSerializer.FromKeyHandleHex(keyedHex);
+
+        Assert.Equal(hmac.KeyHandle, keyedArtifact.KeyHandle);
+        Assert.Equal(hmac.Hmac, keyedArtifact.Artifact);
+        Assert.NotSame(hmac.Hmac, keyedArtifact.Artifact);
+        Assert.Equal(parsedKeyedBytes.Artifact, hmac.Hmac);
+        Assert.Equal(parsedKeyedBase64.Artifact, hmac.Hmac);
+        Assert.Equal(parsedKeyedHex.Artifact, hmac.Hmac);
+        Assert.Equal(keyedHmacBytes, hmac.ToArtifactBytes(CryptographicArtifactFormat.KeyHandleRaw));
+        Assert.Equal(keyedBase64, hmac.ToArtifactText(CryptographicArtifactFormat.KeyHandleBase64));
+        Assert.Equal(keyedHex, hmac.ToArtifactText(CryptographicArtifactFormat.KeyHandleHex));
+        Assert.Throws<NotSupportedException>(() => hmac.ToArtifactBytes(CryptographicArtifactFormat.Base64));
+        Assert.Throws<NotSupportedException>(() => hmac.ToArtifactText(CryptographicArtifactFormat.Raw));
     }
 
     private static ICryptographicService CreateService() => new CryptographicService(CreateKeyService());

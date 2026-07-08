@@ -3,10 +3,10 @@
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.3</Version>
-    <PackageVersion>1.0.3</PackageVersion>
-    <AssemblyVersion>1.0.3.0</AssemblyVersion>
-    <FileVersion>1.0.3.0</FileVersion>
+    <Version>1.0.4</Version>
+    <PackageVersion>1.0.4</PackageVersion>
+    <AssemblyVersion>1.0.4.0</AssemblyVersion>
+    <FileVersion>1.0.4.0</FileVersion>
     <Authors>Mrbr</Authors>
     <Description>Usage-agnostic cryptographic services for .NET backed by Mrbr.Service.KeyManager.</Description>
     <PackageProjectUrl>https://github.com/mrbrirup/Mrbr.Service.EncryptionManager</PackageProjectUrl>
