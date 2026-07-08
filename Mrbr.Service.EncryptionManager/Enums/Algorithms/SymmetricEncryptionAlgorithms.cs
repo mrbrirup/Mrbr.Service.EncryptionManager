@@ -1,7 +1,21 @@
-﻿namespace Mrbr.Service.EncryptionManager.Enums.Algorithms;
+namespace Mrbr.Service.EncryptionManager.Enums.Algorithms;
 
+/// <summary>
+/// Supported symmetric encryption key sizes.
+/// </summary>
 public enum SymmetricEncryptionAlgorithms {
-    AES128 = 0, // Advanced Encryption Standard (128-bit key) - Fast symmetric encryption
-    AES192 = 1, // Advanced Encryption Standard (192-bit key) - Medium-strength symmetric encryption
-    AES256 = 2  // Advanced Encryption Standard (256-bit key) - Strongest symmetric encryption, quantum-safe
+    /// <summary>
+    /// AES-GCM with a 128-bit key.
+    /// </summary>
+    AES128 = 0,
+
+    /// <summary>
+    /// AES-GCM with a 192-bit key.
+    /// </summary>
+    AES192 = 1,
+
+    /// <summary>
+    /// AES-GCM with a 256-bit key.
+    /// </summary>
+    AES256 = 2
 }

@@ -1,20 +1,87 @@
-﻿namespace Mrbr.Service.EncryptionManager.Enums.Algorithms;
+namespace Mrbr.Service.EncryptionManager.Enums.Algorithms;
 
+/// <summary>
+/// Declared hashing algorithms.
+/// </summary>
+/// <remarks>Only SHA256, SHA384, and SHA512 are implemented in the current milestone.</remarks>
 public enum HashingAlgorithms {
-    MD5 = 0,         // Message Digest 5 - Old, broken hashing tool; do not use
-    SHA0 = 1,        // Secure Hash Algorithm 0 - Obsolete hashing tool with design flaws; do not use
-    SHA1 = 2,        // Secure Hash Algorithm 1 - Legacy hashing tool; no longer secure
-    SHA224 = 3,      // Secure Hash Algorithm 2 (224-bit) - Smaller variant of SHA-2 hashing
-    SHA256 = 4,      // Secure Hash Algorithm 2 (256-bit) - Industry standard hashing tool
-    SHA384 = 5,      // Secure Hash Algorithm 2 (384-bit) - High-strength hashing tool
-    SHA512 = 6,      // Secure Hash Algorithm 2 (512-bit) - Strongest SHA-2 hashing tool, fast on 64-bit CPUs
-    SHA512_224 = 7,  // Secure Hash Algorithm 2 (Truncated to 224 bits) - Fast, secure hashing with shorter output
-    SHA512_256 = 8,  // Secure Hash Algorithm 2 (Truncated to 256 bits) - Fast, secure hashing; resists length attacks
-    SHA3_224 = 9,    // Secure Hash Algorithm 3 (224-bit) - Next-gen hashing with a new math structure
-    SHA3_256 = 10,   // Secure Hash Algorithm 3 (256-bit) - Next-gen standard hashing tool
-    SHA3_384 = 11,   // Secure Hash Algorithm 3 (384-bit) - High-strength next-gen hashing tool
-    SHA3_512 = 12,   // Secure Hash Algorithm 3 (512-bit) - Strongest next-gen hashing tool
-    SHAKE128 = 13,   // Secure Hash Algorithm Keccak (128-bit strength) - Variable-length output hashing function
-    SHAKE256 = 14,   // Secure Hash Algorithm Keccak (256-bit strength) - Stronger variable-length output hashing function
-    BLAKE3 = 15      // BLAKE3 - Ultra-fast, highly secure modern hashing tool optimized for multi-core CPUs
+    /// <summary>
+    /// Message Digest 5. Declared only and not implemented; do not use for cryptographic security.
+    /// </summary>
+    MD5 = 0,
+
+    /// <summary>
+    /// Secure Hash Algorithm 0. Declared only and not implemented; do not use for cryptographic security.
+    /// </summary>
+    SHA0 = 1,
+
+    /// <summary>
+    /// Secure Hash Algorithm 1. Declared only and not implemented; do not use for cryptographic security.
+    /// </summary>
+    SHA1 = 2,
+
+    /// <summary>
+    /// SHA-2 with a 224-bit digest. Declared only and not implemented.
+    /// </summary>
+    SHA224 = 3,
+
+    /// <summary>
+    /// SHA-2 with a 256-bit digest.
+    /// </summary>
+    SHA256 = 4,
+
+    /// <summary>
+    /// SHA-2 with a 384-bit digest.
+    /// </summary>
+    SHA384 = 5,
+
+    /// <summary>
+    /// SHA-2 with a 512-bit digest.
+    /// </summary>
+    SHA512 = 6,
+
+    /// <summary>
+    /// SHA-2 with a 224-bit digest truncated from SHA-512. Declared only and not implemented.
+    /// </summary>
+    SHA512_224 = 7,
+
+    /// <summary>
+    /// SHA-2 with a 256-bit digest truncated from SHA-512. Declared only and not implemented.
+    /// </summary>
+    SHA512_256 = 8,
+
+    /// <summary>
+    /// SHA-3 with a 224-bit digest. Declared only and not implemented.
+    /// </summary>
+    SHA3_224 = 9,
+
+    /// <summary>
+    /// SHA-3 with a 256-bit digest. Declared only and not implemented.
+    /// </summary>
+    SHA3_256 = 10,
+
+    /// <summary>
+    /// SHA-3 with a 384-bit digest. Declared only and not implemented.
+    /// </summary>
+    SHA3_384 = 11,
+
+    /// <summary>
+    /// SHA-3 with a 512-bit digest. Declared only and not implemented.
+    /// </summary>
+    SHA3_512 = 12,
+
+    /// <summary>
+    /// SHAKE128 variable-length output function. Declared only and not implemented.
+    /// </summary>
+    SHAKE128 = 13,
+
+    /// <summary>
+    /// SHAKE256 variable-length output function. Declared only and not implemented.
+    /// </summary>
+    SHAKE256 = 14,
+
+    /// <summary>
+    /// BLAKE3 hashing. Declared only and not implemented.
+    /// </summary>
+    BLAKE3 = 15
 }

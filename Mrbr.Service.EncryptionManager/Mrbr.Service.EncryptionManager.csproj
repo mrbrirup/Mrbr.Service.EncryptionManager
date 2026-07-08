@@ -3,13 +3,29 @@
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.2</Version>
-    <PackageVersion>1.0.2</PackageVersion>
-    <AssemblyVersion>1.0.2.0</AssemblyVersion>
-    <FileVersion>1.0.2.0</FileVersion>
+    <Version>1.0.3</Version>
+    <PackageVersion>1.0.3</PackageVersion>
+    <AssemblyVersion>1.0.3.0</AssemblyVersion>
+    <FileVersion>1.0.3.0</FileVersion>
+    <Authors>Mrbr</Authors>
+    <Description>Usage-agnostic cryptographic services for .NET backed by Mrbr.Service.KeyManager.</Description>
+    <PackageProjectUrl>https://github.com/mrbrirup/Mrbr.Service.EncryptionManager</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mrbrirup/Mrbr.Service.EncryptionManager.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+    <PackageTags>encryption;cryptography;hashing;hmac;aes-gcm;key-management</PackageTags>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Mrbr.Service.KeyManager" Version="1.0.1" />
-    <PackageReference Include="Mrbr.SourceGenerators.Common" Version="1.0.0" />
+    <PackageReference Include="Mrbr.Service.KeyManager" Version="1.0.2" />
+    <PackageReference Include="Mrbr.SourceGenerators.Common" Version="1.0.0" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\LICENSE.txt" Pack="true" PackagePath="\" />
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>

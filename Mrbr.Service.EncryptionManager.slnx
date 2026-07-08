@@ -1,4 +1,8 @@
 <Solution>
   <Project Path="Mrbr.Service.EncryptionManager.ConsoleTest/Mrbr.Service.EncryptionManager.ConsoleTest.csproj" />
+  <Project Path="Mrbr.Service.EncryptionManager.Tests/Mrbr.Service.EncryptionManager.Tests.csproj" />
   <Project Path="Mrbr.Service.EncryptionManager/Mrbr.Service.EncryptionManager.csproj" />
+  <Folder Name="/Solution Items/">
+    <File Path="./Solution Items/todos.md" />
+  </Folder>
 </Solution>
