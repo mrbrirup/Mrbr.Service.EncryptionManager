@@ -24,9 +24,15 @@ services.AddEncryptionManager();
 
 using IHost host = builder.Build();
 var encryptionService = host.Services.GetRequiredService<ICryptographicService>();
+KeyServiceConfig keyServiceConfig = host.Services.GetRequiredService<KeyServiceOptions>().Value;
+if (keyServiceConfig.Count != 1) {
+    throw new InvalidOperationException("The console test requires exactly one configured KeyManager source.");
+}
+KeyServiceEntry keySource = keyServiceConfig[0];
+byte keySourceId = checked((byte)keySource.KeySourceId);
 
 const string plainText = "Sensitive data";
-var encrypted = encryptionService.EncryptText(plainText);
+var encrypted = encryptionService.EncryptText(keySourceId, plainText);
 var decrypted = encryptionService.DecryptText(encrypted);
 
 Console.WriteLine("Encrypted:");

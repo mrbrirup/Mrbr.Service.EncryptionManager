@@ -4,6 +4,7 @@ using Mrbr.Service.EncryptionManager.Enums.Algorithms;
 using Mrbr.Service.EncryptionManager.Extensions;
 using Mrbr.Service.EncryptionManager.Services;
 using Mrbr.Service.KeyManager.Configuration;
+using Mrbr.Service.KeyManager.KeyHandles;
 using Mrbr.Service.KeyManager.Services;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -11,7 +12,40 @@ using System.Text;
 
 namespace Mrbr.Service.EncryptionManager.Tests;
 
-public class CryptographicServiceTests {
+public partial class CryptographicServiceTests {
+    [Fact]
+    public void Encrypt_UsesExplicitKeySource() {
+        var service = CreateService(0, 7);
+
+        var encrypted = service.Encrypt(7, "source-specific encryption"u8.ToArray());
+
+        Assert.Equal(7, KeyHandleCodec.GetKeySourceId(encrypted.KeyHandle));
+        Assert.Equal(
+            "source-specific encryption"u8.ToArray(),
+            service.Decrypt(encrypted.KeyHandle, encrypted.Cipher));
+    }
+
+    [Fact]
+    public void Encrypt_ThrowsWhenExplicitKeySourceIsMissing() {
+        var service = CreateService();
+
+        KeyNotFoundException exception = Assert.Throws<KeyNotFoundException>(
+            () => service.Encrypt(7, "missing source"u8.ToArray()));
+
+        Assert.Contains("7", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Hmac_UsesExplicitKeySource() {
+        var service = CreateService(0, 7);
+        byte[] data = "source-specific authentication"u8.ToArray();
+
+        HmacResult result = service.Hmac(7, data);
+
+        Assert.Equal(7, KeyHandleCodec.GetKeySourceId(result.KeyHandle));
+        Assert.True(service.ValidateHmac(result.KeyHandle, data, result.Hmac));
+    }
+
     [Theory]
     [InlineData(SymmetricEncryptionAlgorithms.AES128)]
     [InlineData(SymmetricEncryptionAlgorithms.AES192)]
@@ -21,7 +55,7 @@ public class CryptographicServiceTests {
         var options = new EncryptionOptions { Algorithm = algorithm };
         byte[] plainText = Encoding.UTF8.GetBytes("usage agnostic encryption artifact");
 
-        var encrypted = service.Encrypt(plainText, options);
+        var encrypted = service.Encrypt(0, plainText, options);
         byte[] decrypted = service.Decrypt(encrypted.KeyHandle, encrypted.Cipher, options);
 
         Assert.Equal(CryptographicService.GetCipherLength(plainText.Length), encrypted.Cipher.Length);
@@ -35,7 +69,7 @@ public class CryptographicServiceTests {
         byte[] cipher = GC.AllocateUninitializedArray<byte>(CryptographicService.GetCipherLength(plainText.Length));
         byte[] decrypted = GC.AllocateUninitializedArray<byte>(plainText.Length);
 
-        int cipherLength = service.Encrypt(plainText, cipher, out ulong keyHandle);
+        int cipherLength = service.Encrypt(0, plainText, cipher, out ulong keyHandle);
         int plainTextLength = service.Decrypt(keyHandle, cipher, decrypted);
 
         Assert.Equal(cipher.Length, cipherLength);
@@ -48,13 +82,13 @@ public class CryptographicServiceTests {
         var service = CreateService();
         var options = new EncryptionOptions { Algorithm = (SymmetricEncryptionAlgorithms)999 };
 
-        Assert.Throws<NotSupportedException>(() => service.Encrypt("unsupported aes"u8.ToArray(), options));
+        Assert.Throws<NotSupportedException>(() => service.Encrypt(0, "unsupported aes"u8.ToArray(), options));
     }
 
     [Fact]
     public void Decrypt_RejectsUnsupportedSymmetricAlgorithm() {
         var service = CreateService();
-        var encrypted = service.Encrypt("unsupported aes decrypt"u8.ToArray());
+        var encrypted = service.Encrypt(0, "unsupported aes decrypt"u8.ToArray());
         var options = new EncryptionOptions { Algorithm = (SymmetricEncryptionAlgorithms)999 };
 
         Assert.Throws<NotSupportedException>(() => service.Decrypt(encrypted.KeyHandle, encrypted.Cipher, options));
@@ -66,7 +100,7 @@ public class CryptographicServiceTests {
         byte[] plainText = Encoding.UTF8.GetBytes("small cipher destination");
         byte[] cipher = GC.AllocateUninitializedArray<byte>(CryptographicService.GetCipherLength(plainText.Length) - 1);
 
-        var exception = Assert.Throws<ArgumentException>(() => service.Encrypt(plainText, cipher, out _));
+        var exception = Assert.Throws<ArgumentException>(() => service.Encrypt(0, plainText, cipher, out _));
 
         Assert.Equal("cipherDestination", exception.ParamName);
     }
@@ -75,7 +109,7 @@ public class CryptographicServiceTests {
     public void Decrypt_RejectsTooSmallDestination() {
         var service = CreateService();
         byte[] plainText = Encoding.UTF8.GetBytes("small plain text destination");
-        var encrypted = service.Encrypt(plainText);
+        var encrypted = service.Encrypt(0, plainText);
         byte[] decrypted = GC.AllocateUninitializedArray<byte>(plainText.Length - 1);
 
         var exception = Assert.Throws<ArgumentException>(() => service.Decrypt(encrypted.KeyHandle, encrypted.Cipher, decrypted));
@@ -90,7 +124,7 @@ public class CryptographicServiceTests {
     public void Decrypt_RejectsTamperedCipherArtifact(int tamperIndex) {
         var service = CreateService();
         byte[] plainText = Encoding.UTF8.GetBytes("tamper detection requires non-empty cipher text");
-        var encrypted = service.Encrypt(plainText);
+        var encrypted = service.Encrypt(0, plainText);
         encrypted.Cipher[tamperIndex] ^= 0x01;
 
         Assert.ThrowsAny<CryptographicException>(() => service.Decrypt(encrypted.KeyHandle, encrypted.Cipher));
@@ -100,7 +134,7 @@ public class CryptographicServiceTests {
     public void Decrypt_RejectsTamperedKeyHandle() {
         var service = CreateService();
         byte[] plainText = Encoding.UTF8.GetBytes("key handle is authenticated associated data");
-        var encrypted = service.Encrypt(plainText);
+        var encrypted = service.Encrypt(0, plainText);
         ulong tamperedKeyHandle = encrypted.KeyHandle ^ (1UL << 16);
 
         Assert.ThrowsAny<CryptographicException>(() => service.Decrypt(tamperedKeyHandle, encrypted.Cipher));
@@ -117,7 +151,7 @@ public class CryptographicServiceTests {
             AssociatedData = Encoding.UTF8.GetBytes("second-context")
         };
 
-        var encrypted = service.Encrypt(plainText, encryptOptions);
+        var encrypted = service.Encrypt(0, plainText, encryptOptions);
 
         Assert.ThrowsAny<CryptographicException>(() => service.Decrypt(encrypted.KeyHandle, encrypted.Cipher, decryptOptions));
     }
@@ -139,7 +173,7 @@ public class CryptographicServiceTests {
         var service = CreateService();
         const string plainText = "UTF-8 text helper";
 
-        string encrypted = service.EncryptText(plainText);
+        string encrypted = service.EncryptText(0, plainText);
         string decrypted = service.DecryptText(encrypted);
 
         Assert.Contains(':', encrypted);
@@ -151,7 +185,7 @@ public class CryptographicServiceTests {
         var service = CreateService();
         string? nullText = null;
 
-        Assert.Throws<ArgumentNullException>(() => service.EncryptText(nullText!));
+        Assert.Throws<ArgumentNullException>(() => service.EncryptText(0, nullText!));
         Assert.Throws<ArgumentNullException>(() => service.DecryptText(nullText!));
         Assert.Throws<ArgumentException>(() => service.DecryptText(""));
         Assert.Throws<ArgumentException>(() => service.DecryptText("   "));
@@ -160,7 +194,7 @@ public class CryptographicServiceTests {
     [Fact]
     public void ArtifactSerializer_RoundTripsSupportedFormats() {
         var service = CreateService();
-        var encrypted = service.Encrypt(Encoding.UTF8.GetBytes("serializer formats"));
+        var encrypted = service.Encrypt(0, Encoding.UTF8.GetBytes("serializer formats"));
 
         byte[] rawArtifact = encrypted.Cipher;
         string base64 = CryptographicArtifactSerializer.ToBase64(rawArtifact);
@@ -195,7 +229,7 @@ public class CryptographicServiceTests {
     [Fact]
     public void EncryptionResultSerializer_RoundTripsTypedFormats() {
         var service = CreateService();
-        var encrypted = service.Encrypt(Encoding.UTF8.GetBytes("typed encryption serializer formats"));
+        var encrypted = service.Encrypt(0, Encoding.UTF8.GetBytes("typed encryption serializer formats"));
 
         byte[] rawCipher = encrypted.ToCipherBytes();
         string base64 = encrypted.ToCipherBase64();
@@ -267,7 +301,7 @@ public class CryptographicServiceTests {
 
         using var provider = services.BuildServiceProvider();
         var service = provider.GetRequiredService<ICryptographicService>();
-        var encrypted = service.Encrypt(Encoding.UTF8.GetBytes("resolved from DI"));
+        var encrypted = service.Encrypt(0, Encoding.UTF8.GetBytes("resolved from DI"));
         byte[] decrypted = service.Decrypt(encrypted.KeyHandle, encrypted.Cipher);
 
         Assert.Equal("resolved from DI", Encoding.UTF8.GetString(decrypted));
@@ -364,7 +398,7 @@ public class CryptographicServiceTests {
         var options = new HmacOptions { Algorithm = algorithm };
         byte[] data = Encoding.UTF8.GetBytes("authenticated payload");
 
-        var result = service.Hmac(data, options);
+        var result = service.Hmac(0, data, options);
 
         Assert.Equal(CryptographicService.GetHmacLength(algorithm), result.Hmac.Length);
         Assert.True(service.ValidateHmac(result.KeyHandle, data, result.Hmac, options));
@@ -379,7 +413,7 @@ public class CryptographicServiceTests {
         var options = new HmacOptions { KeySizeInBits = keySizeInBits };
         byte[] data = Encoding.UTF8.GetBytes("authenticated with selectable key material");
 
-        var result = service.Hmac(data, options);
+        var result = service.Hmac(0, data, options);
 
         Assert.True(service.ValidateHmac(result.KeyHandle, data, result.Hmac, options));
     }
@@ -391,10 +425,64 @@ public class CryptographicServiceTests {
         var options = new HmacOptions { Algorithm = HmacAlgorithms.HMACSHA512 };
         byte[] destination = GC.AllocateUninitializedArray<byte>(CryptographicService.GetHmacLength(options.Algorithm));
 
-        int bytesWritten = service.Hmac(data, destination, out ulong keyHandle, options);
+        int bytesWritten = service.Hmac(0, data, destination, out ulong keyHandle, options);
 
         Assert.Equal(destination.Length, bytesWritten);
         Assert.True(service.ValidateHmac(keyHandle, data, destination, options));
+    }
+
+    [Theory]
+    [InlineData(HmacAlgorithms.HMACSHA256)]
+    [InlineData(HmacAlgorithms.HMACSHA384)]
+    [InlineData(HmacAlgorithms.HMACSHA512)]
+    public void HmacWithKeyHandle_IsDeterministicAndReplaysProvisionedKey(HmacAlgorithms algorithm) {
+        var service = CreateService();
+        var options = new HmacOptions { Algorithm = algorithm };
+        byte[] data = Encoding.UTF8.GetBytes("deterministic searchable value");
+        HmacResult provisioned = service.Hmac(0, data, options);
+
+        byte[] first = service.HmacWithKeyHandle(provisioned.KeyHandle, data, options);
+        byte[] second = service.HmacWithKeyHandle(provisioned.KeyHandle, data, options);
+
+        Assert.Equal(provisioned.Hmac, first);
+        Assert.Equal(first, second);
+        Assert.False(first.SequenceEqual(service.HmacWithKeyHandle(
+            provisioned.KeyHandle,
+            "different searchable value"u8.ToArray(),
+            options)));
+    }
+
+    [Fact]
+    public void HmacWithKeyHandle_SpanOverload_WritesExpectedLength() {
+        var service = CreateService();
+        HmacResult provisioned = service.Hmac(0, "provision key"u8.ToArray());
+        byte[] destination = new byte[CryptographicService.GetHmacLength(HmacAlgorithms.HMACSHA256)];
+
+        int bytesWritten = service.HmacWithKeyHandle(
+            provisioned.KeyHandle,
+            "search value"u8.ToArray(),
+            destination);
+
+        Assert.Equal(destination.Length, bytesWritten);
+        Assert.True(service.ValidateHmac(
+            provisioned.KeyHandle,
+            "search value"u8.ToArray(),
+            destination));
+    }
+
+    [Fact]
+    public void HmacWithKeyHandle_RejectsTooSmallDestination() {
+        var service = CreateService();
+        HmacResult provisioned = service.Hmac(0, "provision key"u8.ToArray());
+        byte[] destination = new byte[CryptographicService.GetHmacLength(HmacAlgorithms.HMACSHA256) - 1];
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            service.HmacWithKeyHandle(
+                provisioned.KeyHandle,
+                "search value"u8.ToArray(),
+                destination));
+
+        Assert.Equal("hmacDestination", exception.ParamName);
     }
 
     [Fact]
@@ -403,7 +491,7 @@ public class CryptographicServiceTests {
         byte[] data = Encoding.UTF8.GetBytes("small hmac destination");
         byte[] destination = GC.AllocateUninitializedArray<byte>(CryptographicService.GetHmacLength(HmacAlgorithms.HMACSHA256) - 1);
 
-        var exception = Assert.Throws<ArgumentException>(() => service.Hmac(data, destination, out _));
+        var exception = Assert.Throws<ArgumentException>(() => service.Hmac(0, data, destination, out _));
 
         Assert.Equal("hmacDestination", exception.ParamName);
     }
@@ -412,7 +500,7 @@ public class CryptographicServiceTests {
     public void ValidateHmac_ReturnsFalse_ForTamperedInputs() {
         var service = CreateService();
         byte[] data = Encoding.UTF8.GetBytes("hmac tamper");
-        var result = service.Hmac(data);
+        var result = service.Hmac(0, data);
         byte[] tamperedData = Encoding.UTF8.GetBytes("hmac tamper!");
         byte[] tamperedHmac = result.Hmac.ToArray();
         tamperedHmac[0] ^= 0x01;
@@ -427,7 +515,7 @@ public class CryptographicServiceTests {
     public void ValidateHmac_ReturnsFalse_ForWrongLengthHmac() {
         var service = CreateService();
         byte[] data = Encoding.UTF8.GetBytes("wrong length hmac");
-        var result = service.Hmac(data);
+        var result = service.Hmac(0, data);
 
         Assert.False(service.ValidateHmac(result.KeyHandle, data, []));
     }
@@ -437,7 +525,7 @@ public class CryptographicServiceTests {
         var service = CreateService();
 
         Assert.Throws<NotSupportedException>(() =>
-            service.Hmac("invalid hmac algorithm"u8.ToArray(), new HmacOptions { Algorithm = (HmacAlgorithms)999 }));
+            service.Hmac(0, "invalid hmac algorithm"u8.ToArray(), new HmacOptions { Algorithm = (HmacAlgorithms)999 }));
     }
 
     [Theory]
@@ -449,14 +537,14 @@ public class CryptographicServiceTests {
         var service = CreateService();
         var options = new HmacOptions { KeySizeInBits = keySizeInBits };
 
-        Assert.Throws<NotSupportedException>(() => service.Hmac("invalid hmac key size"u8.ToArray(), options));
+        Assert.Throws<NotSupportedException>(() => service.Hmac(0, "invalid hmac key size"u8.ToArray(), options));
     }
 
     [Fact]
     public void ValidateHmac_RejectsUnsupportedKeySize() {
         var service = CreateService();
         byte[] data = Encoding.UTF8.GetBytes("invalid validation key size");
-        var result = service.Hmac(data);
+        var result = service.Hmac(0, data);
         var options = new HmacOptions { KeySizeInBits = 512 };
 
         Assert.Throws<NotSupportedException>(() => service.ValidateHmac(result.KeyHandle, data, result.Hmac, options));
@@ -465,7 +553,7 @@ public class CryptographicServiceTests {
     [Fact]
     public void HmacSerializer_RoundTripsSupportedKeyedFormats() {
         var service = CreateService();
-        var hmac = service.Hmac(Encoding.UTF8.GetBytes("hmac serializer formats"));
+        var hmac = service.Hmac(0, Encoding.UTF8.GetBytes("hmac serializer formats"));
 
         string keyedBase64 = CryptographicArtifactSerializer.ToKeyHandleBase64(hmac.KeyHandle, hmac.Hmac);
         string keyedHex = CryptographicArtifactSerializer.ToKeyHandleHex(hmac.KeyHandle, hmac.Hmac);
@@ -486,7 +574,7 @@ public class CryptographicServiceTests {
     [Fact]
     public void HmacResultSerializer_RoundTripsTypedFormats() {
         var service = CreateService();
-        var hmac = service.Hmac(Encoding.UTF8.GetBytes("typed hmac serializer formats"));
+        var hmac = service.Hmac(0, Encoding.UTF8.GetBytes("typed hmac serializer formats"));
 
         byte[] rawHmac = hmac.ToHmacBytes();
         string base64 = hmac.ToHmacBase64();
@@ -521,13 +609,19 @@ public class CryptographicServiceTests {
         Assert.Throws<NotSupportedException>(() => hmac.ToArtifactText(CryptographicArtifactFormat.Raw));
     }
 
-    private static ICryptographicService CreateService() => new CryptographicService(CreateKeyService());
+    private static ICryptographicService CreateService(params byte[] keySourceIds) =>
+        new CryptographicService(CreateKeyService(keySourceIds));
 
-    private static IKeyService CreateKeyService() {
+    private static IKeyService CreateKeyService(params byte[] keySourceIds) {
         ResetKeyServiceOptionsState();
-        var config = new KeyServiceConfig {
-            new() {
-                KeySourceId = 0,
+        if (keySourceIds.Length == 0) {
+            keySourceIds = [0];
+        }
+
+        var config = new KeyServiceConfig();
+        foreach (byte keySourceId in keySourceIds) {
+            config.Add(new KeyServiceEntry {
+                KeySourceId = keySourceId,
                 Value = BuildAsciiSourceText(4096),
                 KeyHandleMask = "565342976",
                 Type = KeyType.Block,
@@ -535,8 +629,8 @@ public class CryptographicServiceTests {
                     MinLength = 64,
                     MaxLength = 128
                 }
-            }
-        };
+            });
+        }
 
         return new KeyService(new KeyServiceOptions(Options.Create(config)));
     }

@@ -9,16 +9,16 @@ Implemented:
 - AES-GCM encryption and decryption
 - AES-128, AES-192, and AES-256 key sizes
 - SHA-256, SHA-384, and SHA-512 hashing
+- SHA-3-224/256/384/512 and SHAKE128/256 hashing
 - HMAC-SHA-256, HMAC-SHA-384, and HMAC-SHA-512 message authentication
+- ML-KEM-512/768/1024 hybrid data protection with AES-256-GCM
+- ML-DSA-44/65/87 signatures
+- Automatic native .NET PQC selection with bundled Bouncy Castle fallback
 - Constructor-injected `IKeyService` from `Mrbr.Service.KeyManager`
 - Byte-first APIs with UTF-8 string convenience wrappers
 - Typed artifact serializers for common binary and text shapes
 
-Planned:
-
-- Signing helper methods over appropriate cryptographic primitives
-- Asymmetric signatures
-- Post-quantum cryptographic operations
+Planned next: classical public-key encryption and signatures, consistent result-based failure APIs, and later PQC algorithms such as SLH-DSA.
 
 ## KeyManager Relationship
 
@@ -80,13 +80,14 @@ using Mrbr.Service.EncryptionManager.Enums.Algorithms;
 using Mrbr.Service.EncryptionManager.Services;
 
 var encryption = provider.GetRequiredService<ICryptographicService>();
+byte keySourceId = GetKeySourceIdFromValidatedDeploymentConfiguration();
 
 byte[] plainText = "sensitive payload"u8.ToArray();
 var options = new EncryptionOptions {
     Algorithm = SymmetricEncryptionAlgorithms.AES256
 };
 
-EncryptionResult encrypted = encryption.Encrypt(plainText, options);
+EncryptionResult encrypted = encryption.Encrypt(keySourceId, plainText, options);
 byte[] decrypted = encryption.Decrypt(encrypted.KeyHandle, encrypted.Cipher, options);
 ```
 
@@ -94,7 +95,7 @@ Span overloads are available for callers that want to provide their own buffers:
 
 ```csharp
 byte[] cipher = new byte[CryptographicService.GetCipherLength(plainText.Length)];
-int cipherLength = encryption.Encrypt(plainText, cipher, out ulong keyHandle, options);
+int cipherLength = encryption.Encrypt(keySourceId, plainText, cipher, out ulong keyHandle, options);
 
 byte[] decrypted = new byte[plainText.Length];
 int plainTextLength = encryption.Decrypt(keyHandle, cipher.AsSpan(0, cipherLength), decrypted, options);
@@ -115,6 +116,31 @@ HashResult hash = cryptographicService.Hash(data, hashOptions);
 bool valid = cryptographicService.ValidateHash(data, hash.Hash, hashOptions);
 ```
 
+SHAKE requires an explicit output length:
+
+```csharp
+var shakeOptions = new HashOptions {
+    Algorithm = HashingAlgorithms.SHAKE256,
+    OutputLengthInBytes = 64
+};
+```
+
+## Post-quantum protection and signatures
+
+PQC algorithms are explicit, but provider selection is automatic. The library uses native .NET support when available and otherwise uses its bundled Bouncy Castle dependency. No provider setting is required or persisted.
+
+```csharp
+var kemOptions = new PostQuantumEncryptionOptions(MlKemAlgorithms.MLKEM768);
+EncryptionResult protectedData = cryptographicService.EncryptPostQuantum(keySourceId, data, kemOptions);
+byte[] recovered = cryptographicService.DecryptPostQuantum(protectedData.KeyHandle, protectedData.Cipher, kemOptions);
+
+var signatureOptions = new PostQuantumSignatureOptions(MlDsaAlgorithms.MLDSA65);
+SignatureResult signature = cryptographicService.SignPostQuantum(keySourceId, data, signatureOptions);
+bool signatureValid = cryptographicService.VerifyPostQuantum(signature.KeyHandle, data, signature.Signature, signatureOptions);
+```
+
+The ML-KEM artifact is opaque to callers. It contains the KEM output and AES-GCM protected datum; only the KeyManager handle is exposed separately. Use `PostQuantumAlgorithmInfo` for algorithm-specific storage sizing without parsing the artifact.
+
 ## HMAC
 
 HMAC operations use KeyManager material and return a replay handle:
@@ -124,7 +150,7 @@ var hmacOptions = new HmacOptions {
     Algorithm = HmacAlgorithms.HMACSHA256
 };
 
-HmacResult hmac = cryptographicService.Hmac(data, hmacOptions);
+HmacResult hmac = cryptographicService.Hmac(keySourceId, data, hmacOptions);
 bool valid = cryptographicService.ValidateHmac(
     hmac.KeyHandle,
     data,
@@ -133,6 +159,18 @@ bool valid = cryptographicService.ValidateHmac(
 ```
 
 `HmacOptions.KeySizeInBits` controls HMAC key material size. Supported key sizes are 128, 192, and 256 bits; the default is 256 bits. HMAC operations authenticate exactly the bytes supplied by the caller; the `KeyHandle` is returned as replay metadata.
+
+For deterministic keyed operations such as database equality-search tokens, provision one key handle outside the runtime data path and store that handle in deployment configuration. Replay it for every value in the same domain:
+
+```csharp
+ulong searchKeyHandle = GetSearchKeyHandleFromValidatedDeploymentConfiguration();
+byte[] searchToken = cryptographicService.HmacWithKeyHandle(
+    searchKeyHandle,
+    domainSeparatedValue,
+    hmacOptions);
+```
+
+`HmacWithKeyHandle` returns only the HMAC bytes. It does not generate a new key or include the handle in the result. Reusing a handle is appropriate only for an explicitly designed deterministic domain; ordinary HMAC creation should continue using `Hmac(keySourceId, ...)` so it receives fresh KeyManager material.
 
 ## Artifact Serializers
 
@@ -169,7 +207,7 @@ Destination buffers that are too small throw `ArgumentException` with the destin
 
 Validation methods return `false` for mismatched values, wrong-length hashes/HMACs, and HMAC handles that KeyManager cannot replay. Invalid validation options still throw.
 
-AES-GCM decryption throws `CryptographicException` when authentication fails, including tampered nonce, tag, ciphertext, associated data, or key handle.
+AES-GCM decryption throws `CryptographicException` when authentication fails, including tampered nonce, tag, ciphertext, associated data, or key handle. `TryDecryptPostQuantum` instead returns `CryptographicResult<byte[]>` with a `CryptographicFailure` for expected failures.
 
 Artifact parsers throw `ArgumentNullException` for null text input, `ArgumentException` for empty or whitespace keyed text input, and `FormatException` for malformed handle, Base64, Hex, or keyed artifact formats.
 
@@ -177,11 +215,13 @@ Artifact parsers throw `ArgumentNullException` for null text input, `ArgumentExc
 
 `SymmetricEncryptionAlgorithms.AES128`, `AES192`, and `AES256` are implemented through AES-GCM.
 
-`HashingAlgorithms.SHA256`, `SHA384`, and `SHA512` are implemented for unkeyed hashing. Other `HashingAlgorithms` values are declared but not implemented.
+`HashingAlgorithms.SHA256`, `SHA384`, `SHA512`, all declared SHA-3 variants, `SHAKE128`, and `SHAKE256` are implemented for unkeyed hashing. Legacy and BLAKE3 enum values remain unimplemented.
 
 `HmacAlgorithms.HMACSHA256`, `HMACSHA384`, and `HMACSHA512` are implemented for keyed message authentication.
 
-`AsymmetricAlgorithms` currently declares planned asymmetric signature and encryption surfaces. They are not implemented yet.
+ML-KEM and ML-DSA have explicit implemented enums and APIs. The older `AsymmetricAlgorithms` enum still represents planned classical and later PQC surfaces and is not used by the implemented PQC methods.
+
+The focused library requirements are recorded in [EncryptionManager requirements](docs/encryption-manager-requirements.md). All downstream-visible changes are tracked in [Public API changes](docs/public-api-changes.md).
 
 ## Build And Test
 
@@ -193,4 +233,4 @@ dotnet test Mrbr.Service.EncryptionManager.slnx
 ## Requirements
 
 - .NET 11.0 or higher
-- `Mrbr.Service.KeyManager` 1.0.2 or higher
+- `Mrbr.Service.KeyManager` 2.0.0 or higher

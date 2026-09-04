@@ -4,24 +4,42 @@ namespace Mrbr.Service.EncryptionManager.Services;
 /// Provides usage-agnostic cryptographic operations backed by KeyManager-supplied key material.
 /// </summary>
 public interface ICryptographicService {
+    /// <summary>Protects data using ML-KEM key establishment and AES-256-GCM.</summary>
+    EncryptionResult EncryptPostQuantum(byte keySourceId, ReadOnlySpan<byte> dataToEncrypt, PostQuantumEncryptionOptions options);
+
+    /// <summary>Recovers data protected by <see cref="EncryptPostQuantum"/>.</summary>
+    byte[] DecryptPostQuantum(ulong keyHandle, ReadOnlySpan<byte> protectedData, PostQuantumEncryptionOptions options);
+
+    /// <summary>Attempts PQC decryption and returns known data, authentication, or key failures without throwing.</summary>
+    CryptographicResult<byte[]> TryDecryptPostQuantum(ulong keyHandle, ReadOnlySpan<byte> protectedData, PostQuantumEncryptionOptions options);
+
+    /// <summary>Signs data using ML-DSA seed material supplied by KeyManager.</summary>
+    SignatureResult SignPostQuantum(byte keySourceId, ReadOnlySpan<byte> dataToSign, PostQuantumSignatureOptions options);
+
+    /// <summary>Verifies an ML-DSA signature using seed material replayed by KeyManager.</summary>
+    bool VerifyPostQuantum(ulong keyHandle, ReadOnlySpan<byte> signedData, ReadOnlySpan<byte> signature, PostQuantumSignatureOptions options);
+
     /// <summary>
     /// Encrypts bytes with AES-GCM and returns the replay key handle with the cipher artifact.
     /// </summary>
+    /// <param name="keySourceId">The configured KeyManager source used to generate key material.</param>
     /// <param name="dataToEncrypt">Bytes to encrypt.</param>
     /// <param name="encryptionOptions">Optional AES-GCM encryption settings.</param>
     /// <returns>The key handle and cipher artifact.</returns>
     /// <remarks>The cipher artifact layout is nonce[12] + tag[16] + ciphertext.</remarks>
-    EncryptionResult Encrypt(ReadOnlySpan<byte> dataToEncrypt, EncryptionOptions? encryptionOptions = null);
+    EncryptionResult Encrypt(byte keySourceId, ReadOnlySpan<byte> dataToEncrypt, EncryptionOptions? encryptionOptions = null);
 
     /// <summary>
     /// Encrypts bytes with AES-GCM into a caller-provided destination buffer.
     /// </summary>
+    /// <param name="keySourceId">The configured KeyManager source used to generate key material.</param>
     /// <param name="dataToEncrypt">Bytes to encrypt.</param>
     /// <param name="cipherDestination">Destination for nonce[12] + tag[16] + ciphertext.</param>
     /// <param name="keyHandle">Receives the KeyManager handle required for decryption.</param>
     /// <param name="encryptionOptions">Optional AES-GCM encryption settings.</param>
     /// <returns>The number of bytes written to <paramref name="cipherDestination" />.</returns>
     int Encrypt(
+        byte keySourceId,
         ReadOnlySpan<byte> dataToEncrypt,
         Span<byte> cipherDestination,
         out ulong keyHandle,
@@ -53,10 +71,11 @@ public interface ICryptographicService {
     /// <summary>
     /// Encrypts UTF-8 text and returns a {handle}:{Base64(cipher)} payload.
     /// </summary>
+    /// <param name="keySourceId">The configured KeyManager source used to generate key material.</param>
     /// <param name="plainText">Text to encrypt.</param>
     /// <param name="encryptionOptions">Optional AES-GCM encryption settings.</param>
     /// <returns>A key-handle-prefixed Base64 cipher artifact.</returns>
-    string EncryptText(string plainText, EncryptionOptions? encryptionOptions = null);
+    string EncryptText(byte keySourceId, string plainText, EncryptionOptions? encryptionOptions = null);
 
     /// <summary>
     /// Decrypts a {handle}:{Base64(cipher)} payload created by <see cref="EncryptText" />.
@@ -95,15 +114,17 @@ public interface ICryptographicService {
     /// <summary>
     /// Computes an HMAC and returns the replay key handle.
     /// </summary>
+    /// <param name="keySourceId">The configured KeyManager source used to generate HMAC key material.</param>
     /// <param name="dataToAuthenticate">Bytes to authenticate.</param>
     /// <param name="hmacOptions">Optional HMAC settings.</param>
     /// <returns>The key handle and HMAC bytes.</returns>
     /// <remarks>The HMAC is computed over exactly <paramref name="dataToAuthenticate" />. The key handle is returned as replay metadata.</remarks>
-    HmacResult Hmac(ReadOnlySpan<byte> dataToAuthenticate, HmacOptions? hmacOptions = null);
+    HmacResult Hmac(byte keySourceId, ReadOnlySpan<byte> dataToAuthenticate, HmacOptions? hmacOptions = null);
 
     /// <summary>
     /// Computes an HMAC into a caller-provided destination buffer.
     /// </summary>
+    /// <param name="keySourceId">The configured KeyManager source used to generate HMAC key material.</param>
     /// <param name="dataToAuthenticate">Bytes to authenticate.</param>
     /// <param name="hmacDestination">Destination for computed HMAC bytes.</param>
     /// <param name="keyHandle">Receives the KeyManager handle required for validation.</param>
@@ -111,9 +132,36 @@ public interface ICryptographicService {
     /// <returns>The number of bytes written to <paramref name="hmacDestination" />.</returns>
     /// <remarks>The HMAC is computed over exactly <paramref name="dataToAuthenticate" />. The key handle is returned as replay metadata.</remarks>
     int Hmac(
+        byte keySourceId,
         ReadOnlySpan<byte> dataToAuthenticate,
         Span<byte> hmacDestination,
         out ulong keyHandle,
+        HmacOptions? hmacOptions = null);
+
+    /// <summary>
+    /// Computes a deterministic HMAC by replaying externally provisioned KeyManager key material.
+    /// </summary>
+    /// <param name="keyHandle">The stable KeyManager handle identifying the HMAC key material.</param>
+    /// <param name="dataToAuthenticate">Bytes to authenticate.</param>
+    /// <param name="hmacOptions">Optional HMAC settings. These must match key provisioning.</param>
+    /// <returns>The computed HMAC bytes. The key handle is not included in the result.</returns>
+    byte[] HmacWithKeyHandle(
+        ulong keyHandle,
+        ReadOnlySpan<byte> dataToAuthenticate,
+        HmacOptions? hmacOptions = null);
+
+    /// <summary>
+    /// Computes a deterministic HMAC into a caller-provided destination by replaying externally provisioned KeyManager key material.
+    /// </summary>
+    /// <param name="keyHandle">The stable KeyManager handle identifying the HMAC key material.</param>
+    /// <param name="dataToAuthenticate">Bytes to authenticate.</param>
+    /// <param name="hmacDestination">Destination for the computed HMAC bytes.</param>
+    /// <param name="hmacOptions">Optional HMAC settings. These must match key provisioning.</param>
+    /// <returns>The number of bytes written to <paramref name="hmacDestination" />.</returns>
+    int HmacWithKeyHandle(
+        ulong keyHandle,
+        ReadOnlySpan<byte> dataToAuthenticate,
+        Span<byte> hmacDestination,
         HmacOptions? hmacOptions = null);
 
     /// <summary>

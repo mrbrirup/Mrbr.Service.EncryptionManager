@@ -3,6 +3,7 @@ using Mrbr.Service.KeyManager.Services;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using Org.BouncyCastle.Crypto.Digests;
 
 namespace Mrbr.Service.EncryptionManager.Services;
 
@@ -10,7 +11,7 @@ namespace Mrbr.Service.EncryptionManager.Services;
 /// Default implementation of <see cref="ICryptographicService" />.
 /// </summary>
 /// <param name="keyService">The KeyManager service used to generate and replay key material.</param>
-public sealed class CryptographicService(IKeyService keyService) : ICryptographicService {
+public sealed partial class CryptographicService(IKeyService keyService) : ICryptographicService {
     private const int NonceSizeInBytes = 12;
     private const int TagSizeInBytes = 16;
     private const int KeyHandleSizeInBytes = sizeof(ulong);
@@ -18,15 +19,16 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
     private readonly IKeyService _keyService = keyService ?? throw new ArgumentNullException(nameof(keyService));
 
     /// <inheritdoc />
-    public EncryptionResult Encrypt(ReadOnlySpan<byte> dataToEncrypt, EncryptionOptions? encryptionOptions = null) {
+    public EncryptionResult Encrypt(byte keySourceId, ReadOnlySpan<byte> dataToEncrypt, EncryptionOptions? encryptionOptions = null) {
         var options = ResolveEncryptionOptions(encryptionOptions);
         byte[] cipher = GC.AllocateUninitializedArray<byte>(GetCipherLength(dataToEncrypt.Length));
-        Encrypt(dataToEncrypt, cipher, out ulong keyHandle, options);
+        Encrypt(keySourceId, dataToEncrypt, cipher, out ulong keyHandle, options);
         return new EncryptionResult(keyHandle, cipher);
     }
 
     /// <inheritdoc />
     public int Encrypt(
+        byte keySourceId,
         ReadOnlySpan<byte> dataToEncrypt,
         Span<byte> cipherDestination,
         out ulong keyHandle,
@@ -43,7 +45,7 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
         Span<byte> key = stackalloc byte[keySize];
         byte[]? associatedData = null;
         try {
-            GenerateKey(options.Algorithm, key, out keyHandle);
+            GenerateKey(keySourceId, options.Algorithm, key, out keyHandle);
             associatedData = BuildAssociatedData(keyHandle, options.AssociatedData);
 
             Span<byte> nonce = cipherDestination.Slice(0, NonceSizeInBytes);
@@ -109,12 +111,12 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
     }
 
     /// <inheritdoc />
-    public string EncryptText(string plainText, EncryptionOptions? encryptionOptions = null) {
+    public string EncryptText(byte keySourceId, string plainText, EncryptionOptions? encryptionOptions = null) {
         ArgumentNullException.ThrowIfNull(plainText);
 
         byte[] plainTextBytes = Encoding.UTF8.GetBytes(plainText);
         try {
-            var result = Encrypt(plainTextBytes, encryptionOptions);
+            var result = Encrypt(keySourceId, plainTextBytes, encryptionOptions);
             return CryptographicArtifactSerializer.ToKeyHandleBase64(result.KeyHandle, result.Cipher);
         }
         finally {
@@ -137,7 +139,7 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
     /// <inheritdoc />
     public HashResult Hash(ReadOnlySpan<byte> dataToHash, HashOptions? hashOptions = null) {
         var options = ResolveHashOptions(hashOptions);
-        byte[] hash = GC.AllocateUninitializedArray<byte>(GetHashLength(options.Algorithm));
+        byte[] hash = GC.AllocateUninitializedArray<byte>(GetHashLength(options));
         Hash(dataToHash, hash, options);
         return new HashResult(hash);
     }
@@ -145,18 +147,18 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
     /// <inheritdoc />
     public int Hash(ReadOnlySpan<byte> dataToHash, Span<byte> hashDestination, HashOptions? hashOptions = null) {
         var options = ResolveHashOptions(hashOptions);
-        int hashLength = GetHashLength(options.Algorithm);
+        int hashLength = GetHashLength(options);
         if (hashDestination.Length < hashLength) {
             throw new ArgumentException($"Destination must be at least {hashLength} bytes.", nameof(hashDestination));
         }
 
-        return WriteHash(options.Algorithm, dataToHash, hashDestination);
+        return WriteHash(options.Algorithm, dataToHash, hashDestination[..hashLength]);
     }
 
     /// <inheritdoc />
     public bool ValidateHash(ReadOnlySpan<byte> dataToHash, ReadOnlySpan<byte> expectedHash, HashOptions? hashOptions = null) {
         var options = ResolveHashOptions(hashOptions);
-        int hashLength = GetHashLength(options.Algorithm);
+        int hashLength = GetHashLength(options);
         if (expectedHash.Length != hashLength) {
             return false;
         }
@@ -172,15 +174,16 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
     }
 
     /// <inheritdoc />
-    public HmacResult Hmac(ReadOnlySpan<byte> dataToAuthenticate, HmacOptions? hmacOptions = null) {
+    public HmacResult Hmac(byte keySourceId, ReadOnlySpan<byte> dataToAuthenticate, HmacOptions? hmacOptions = null) {
         var options = ResolveHmacOptions(hmacOptions);
         byte[] hmac = GC.AllocateUninitializedArray<byte>(GetHmacLength(options.Algorithm));
-        Hmac(dataToAuthenticate, hmac, out ulong keyHandle, options);
+        Hmac(keySourceId, dataToAuthenticate, hmac, out ulong keyHandle, options);
         return new HmacResult(keyHandle, hmac);
     }
 
     /// <inheritdoc />
     public int Hmac(
+        byte keySourceId,
         ReadOnlySpan<byte> dataToAuthenticate,
         Span<byte> hmacDestination,
         out ulong keyHandle,
@@ -194,7 +197,41 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
         int keySize = GetKeySizeInBytes(options.KeySizeInBits);
         Span<byte> key = stackalloc byte[keySize];
         try {
-            GenerateKey(options.KeySizeInBits, key, out keyHandle);
+            GenerateKey(keySourceId, options.KeySizeInBits, key, out keyHandle);
+            return WriteHmac(options.Algorithm, key, dataToAuthenticate, hmacDestination);
+        }
+        finally {
+            CryptographicOperations.ZeroMemory(key);
+        }
+    }
+
+    /// <inheritdoc />
+    public byte[] HmacWithKeyHandle(
+        ulong keyHandle,
+        ReadOnlySpan<byte> dataToAuthenticate,
+        HmacOptions? hmacOptions = null) {
+        var options = ResolveHmacOptions(hmacOptions);
+        byte[] hmac = GC.AllocateUninitializedArray<byte>(GetHmacLength(options.Algorithm));
+        HmacWithKeyHandle(keyHandle, dataToAuthenticate, hmac, options);
+        return hmac;
+    }
+
+    /// <inheritdoc />
+    public int HmacWithKeyHandle(
+        ulong keyHandle,
+        ReadOnlySpan<byte> dataToAuthenticate,
+        Span<byte> hmacDestination,
+        HmacOptions? hmacOptions = null) {
+        var options = ResolveHmacOptions(hmacOptions);
+        int hmacLength = GetHmacLength(options.Algorithm);
+        if (hmacDestination.Length < hmacLength) {
+            throw new ArgumentException($"Destination must be at least {hmacLength} bytes.", nameof(hmacDestination));
+        }
+
+        int keySize = GetKeySizeInBytes(options.KeySizeInBits);
+        Span<byte> key = stackalloc byte[keySize];
+        try {
+            GetKey(options.KeySizeInBits, keyHandle, key);
             return WriteHmac(options.Algorithm, key, dataToAuthenticate, hmacDestination);
         }
         finally {
@@ -273,8 +310,24 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
             HashingAlgorithms.SHA256 => 32,
             HashingAlgorithms.SHA384 => 48,
             HashingAlgorithms.SHA512 => 64,
+            HashingAlgorithms.SHA3_224 => 28,
+            HashingAlgorithms.SHA3_256 => 32,
+            HashingAlgorithms.SHA3_384 => 48,
+            HashingAlgorithms.SHA3_512 => 64,
             _ => throw new NotSupportedException($"Hashing algorithm '{algorithm}' is not supported.")
         };
+
+    /// <summary>Gets the digest length, including a caller-selected SHAKE length.</summary>
+    public static int GetHashLength(HashOptions options) {
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.Algorithm is HashingAlgorithms.SHAKE128 or HashingAlgorithms.SHAKE256) {
+            if (options.OutputLengthInBytes is not > 0) {
+                throw new ArgumentOutOfRangeException(nameof(options), "SHAKE requires a positive output length.");
+            }
+            return options.OutputLengthInBytes.Value;
+        }
+        return GetHashLength(options.Algorithm);
+    }
 
     /// <summary>
     /// Gets the HMAC length for a supported HMAC algorithm.
@@ -301,7 +354,8 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
         hashOptions is null
             ? HashOptions.Default
             : new HashOptions {
-                Algorithm = hashOptions.Algorithm
+                Algorithm = hashOptions.Algorithm,
+                OutputLengthInBytes = hashOptions.OutputLengthInBytes
             };
 
     private static HmacOptions ResolveHmacOptions(HmacOptions? hmacOptions) =>
@@ -312,32 +366,32 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
                 KeySizeInBits = hmacOptions.KeySizeInBits
             };
 
-    private void GenerateKey(SymmetricEncryptionAlgorithms algorithm, Span<byte> destination, out ulong keyHandle) {
+    private void GenerateKey(byte keySourceId, SymmetricEncryptionAlgorithms algorithm, Span<byte> destination, out ulong keyHandle) {
         switch (algorithm) {
             case SymmetricEncryptionAlgorithms.AES128:
-                _keyService.GenerateKey128(destination, out keyHandle);
+                _keyService.GenerateKey128(keySourceId, destination, out keyHandle);
                 return;
             case SymmetricEncryptionAlgorithms.AES192:
-                _keyService.GenerateKey192(destination, out keyHandle);
+                _keyService.GenerateKey192(keySourceId, destination, out keyHandle);
                 return;
             case SymmetricEncryptionAlgorithms.AES256:
-                _keyService.GenerateKey256(destination, out keyHandle);
+                _keyService.GenerateKey256(keySourceId, destination, out keyHandle);
                 return;
             default:
                 throw new NotSupportedException($"Symmetric algorithm '{algorithm}' is not supported.");
         }
     }
 
-    private void GenerateKey(int keySizeInBits, Span<byte> destination, out ulong keyHandle) {
+    private void GenerateKey(byte keySourceId, int keySizeInBits, Span<byte> destination, out ulong keyHandle) {
         switch (keySizeInBits) {
             case 128:
-                _keyService.GenerateKey128(destination, out keyHandle);
+                _keyService.GenerateKey128(keySourceId, destination, out keyHandle);
                 return;
             case 192:
-                _keyService.GenerateKey192(destination, out keyHandle);
+                _keyService.GenerateKey192(keySourceId, destination, out keyHandle);
                 return;
             case 256:
-                _keyService.GenerateKey256(destination, out keyHandle);
+                _keyService.GenerateKey256(keySourceId, destination, out keyHandle);
                 return;
             default:
                 throw new NotSupportedException($"Key material size '{keySizeInBits}' is not supported.");
@@ -397,8 +451,59 @@ public sealed class CryptographicService(IKeyService keyService) : ICryptographi
             HashingAlgorithms.SHA256 => SHA256.HashData(data, destination),
             HashingAlgorithms.SHA384 => SHA384.HashData(data, destination),
             HashingAlgorithms.SHA512 => SHA512.HashData(data, destination),
+            HashingAlgorithms.SHA3_224 => WriteBouncyCastleHash(new Sha3Digest(224), data, destination),
+            HashingAlgorithms.SHA3_256 when SHA3_256.IsSupported => SHA3_256.HashData(data, destination),
+            HashingAlgorithms.SHA3_256 => WriteBouncyCastleHash(new Sha3Digest(256), data, destination),
+            HashingAlgorithms.SHA3_384 when SHA3_384.IsSupported => SHA3_384.HashData(data, destination),
+            HashingAlgorithms.SHA3_384 => WriteBouncyCastleHash(new Sha3Digest(384), data, destination),
+            HashingAlgorithms.SHA3_512 when SHA3_512.IsSupported => SHA3_512.HashData(data, destination),
+            HashingAlgorithms.SHA3_512 => WriteBouncyCastleHash(new Sha3Digest(512), data, destination),
+            HashingAlgorithms.SHAKE128 when Shake128.IsSupported => WriteNativeShake128(data, destination),
+            HashingAlgorithms.SHAKE128 => WriteBouncyCastleShake(new ShakeDigest(128), data, destination),
+            HashingAlgorithms.SHAKE256 when Shake256.IsSupported => WriteNativeShake256(data, destination),
+            HashingAlgorithms.SHAKE256 => WriteBouncyCastleShake(new ShakeDigest(256), data, destination),
             _ => throw new NotSupportedException($"Hashing algorithm '{algorithm}' is not supported.")
         };
+
+    private static int WriteBouncyCastleHash(Sha3Digest digest, ReadOnlySpan<byte> data, Span<byte> destination) {
+        byte[] input = data.ToArray();
+        byte[] output = new byte[destination.Length];
+        try {
+            digest.BlockUpdate(input, 0, input.Length);
+            int written = digest.DoFinal(output, 0);
+            output.AsSpan(0, written).CopyTo(destination);
+            return written;
+        }
+        finally {
+            CryptographicOperations.ZeroMemory(input);
+            CryptographicOperations.ZeroMemory(output);
+        }
+    }
+
+    private static int WriteBouncyCastleShake(ShakeDigest digest, ReadOnlySpan<byte> data, Span<byte> destination) {
+        byte[] input = data.ToArray();
+        byte[] output = new byte[destination.Length];
+        try {
+            digest.BlockUpdate(input, 0, input.Length);
+            int written = digest.OutputFinal(output, 0, output.Length);
+            output.AsSpan(0, written).CopyTo(destination);
+            return written;
+        }
+        finally {
+            CryptographicOperations.ZeroMemory(input);
+            CryptographicOperations.ZeroMemory(output);
+        }
+    }
+
+    private static int WriteNativeShake128(ReadOnlySpan<byte> data, Span<byte> destination) {
+        Shake128.HashData(data, destination);
+        return destination.Length;
+    }
+
+    private static int WriteNativeShake256(ReadOnlySpan<byte> data, Span<byte> destination) {
+        Shake256.HashData(data, destination);
+        return destination.Length;
+    }
 
     private static int WriteHmac(
         HmacAlgorithms algorithm,
