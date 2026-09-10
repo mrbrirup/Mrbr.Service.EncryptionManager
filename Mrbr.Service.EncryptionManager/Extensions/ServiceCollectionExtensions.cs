@@ -12,7 +12,7 @@ public static class ServiceCollectionExtensions {
     /// </summary>
     /// <param name="services">The service collection to register with.</param>
     /// <returns>The same service collection for chaining.</returns>
-    /// <remarks>Consumers must register KeyManager's IKeyService separately.</remarks>
+    /// <remarks>Consumers must register KeyManager 3 IKeyService with KeyValidationOptions separately. Configuration acceptance, enrollment and audit delivery are host responsibilities.</remarks>
     public static IServiceCollection AddEncryptionManager(this IServiceCollection services) {
         ArgumentNullException.ThrowIfNull(services);
 

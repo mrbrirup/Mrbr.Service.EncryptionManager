@@ -3,16 +3,17 @@
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>2.0.0</Version>
-    <PackageVersion>2.0.0</PackageVersion>
-    <AssemblyVersion>2.0.0.0</AssemblyVersion>
-    <FileVersion>2.0.0.0</FileVersion>
+    <Version>3.0.0-preview.1</Version>
+    <PackageVersion>3.0.0-preview.1</PackageVersion>
+    <AssemblyVersion>3.0.0.0</AssemblyVersion>
+    <FileVersion>3.0.0.0</FileVersion>
     <Authors>Mrbr</Authors>
     <Description>Usage-agnostic cryptographic services for .NET backed by Mrbr.Service.KeyManager.</Description>
     <PackageProjectUrl>https://github.com/mrbrirup/Mrbr.Service.EncryptionManager</PackageProjectUrl>
     <RepositoryUrl>https://github.com/mrbrirup/Mrbr.Service.EncryptionManager.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>KeyManager 3 adoption: lifecycle-aware generation and unrestricted existing-key replay. See RELEASE_NOTES.md and docs/downstream-3.0.md.</PackageReleaseNotes>
     <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
     <PackageTags>encryption;cryptography;hashing;hmac;aes-gcm;key-management;pqc;ml-kem;ml-dsa</PackageTags>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
@@ -22,11 +23,13 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
-    <PackageReference Include="Mrbr.Service.KeyManager" Version="2.0.0" />
+    <PackageReference Include="Mrbr.Service.KeyManager" Version="3.0.0-preview.1" />
     <PackageReference Include="Mrbr.SourceGenerators.Common" Version="1.0.0" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\LICENSE.txt" Pack="true" PackagePath="\" />
     <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\RELEASE_NOTES.md" Pack="true" PackagePath="\" />
+    <None Include="..\docs\downstream-3.0.md" Pack="true" PackagePath="docs" />
   </ItemGroup>
 </Project>

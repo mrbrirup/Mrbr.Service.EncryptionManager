@@ -3,6 +3,9 @@ namespace Mrbr.Service.EncryptionManager.Services;
 /// <summary>
 /// Provides usage-agnostic cryptographic operations backed by KeyManager-supplied key material.
 /// </summary>
+/// <remarks>Operations generating keys require an Enabled KeyManager source. Decryption, verification and
+/// deterministic HMAC replay also support Disabled and Retired sources. KeyManager owns lifecycle enforcement;
+/// EncryptionManager does not load configuration or deliver audit records.</remarks>
 public interface ICryptographicService {
     /// <summary>Protects data using ML-KEM key establishment and AES-256-GCM.</summary>
     EncryptionResult EncryptPostQuantum(byte keySourceId, ReadOnlySpan<byte> dataToEncrypt, PostQuantumEncryptionOptions options);
@@ -145,6 +148,7 @@ public interface ICryptographicService {
     /// <param name="dataToAuthenticate">Bytes to authenticate.</param>
     /// <param name="hmacOptions">Optional HMAC settings. These must match key provisioning.</param>
     /// <returns>The computed HMAC bytes. The key handle is not included in the result.</returns>
+    /// <remarks>Replays an existing key without generating one. Enabled, Disabled and Retired sources are supported, including for new lookup inputs.</remarks>
     byte[] HmacWithKeyHandle(
         ulong keyHandle,
         ReadOnlySpan<byte> dataToAuthenticate,
@@ -158,6 +162,7 @@ public interface ICryptographicService {
     /// <param name="hmacDestination">Destination for the computed HMAC bytes.</param>
     /// <param name="hmacOptions">Optional HMAC settings. These must match key provisioning.</param>
     /// <returns>The number of bytes written to <paramref name="hmacDestination" />.</returns>
+    /// <remarks>Replays an existing key without generating one. Enabled, Disabled and Retired sources are supported.</remarks>
     int HmacWithKeyHandle(
         ulong keyHandle,
         ReadOnlySpan<byte> dataToAuthenticate,

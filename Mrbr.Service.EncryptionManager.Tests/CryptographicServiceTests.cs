@@ -6,13 +6,14 @@ using Mrbr.Service.EncryptionManager.Services;
 using Mrbr.Service.KeyManager.Configuration;
 using Mrbr.Service.KeyManager.KeyHandles;
 using Mrbr.Service.KeyManager.Services;
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace Mrbr.Service.EncryptionManager.Tests;
 
-public partial class CryptographicServiceTests {
+public partial class CryptographicServiceTests : IDisposable {
+    private readonly KeyManagerTestEnvironment environment = new();
+    public void Dispose() => environment.Dispose();
     [Fact]
     public void Encrypt_UsesExplicitKeySource() {
         var service = CreateService(0, 7);
@@ -609,50 +610,11 @@ public partial class CryptographicServiceTests {
         Assert.Throws<NotSupportedException>(() => hmac.ToArtifactText(CryptographicArtifactFormat.Raw));
     }
 
-    private static ICryptographicService CreateService(params byte[] keySourceIds) =>
+    private ICryptographicService CreateService(params byte[] keySourceIds) =>
         new CryptographicService(CreateKeyService(keySourceIds));
 
-    private static IKeyService CreateKeyService(params byte[] keySourceIds) {
-        ResetKeyServiceOptionsState();
-        if (keySourceIds.Length == 0) {
-            keySourceIds = [0];
-        }
-
-        var config = new KeyServiceConfig();
-        foreach (byte keySourceId in keySourceIds) {
-            config.Add(new KeyServiceEntry {
-                KeySourceId = keySourceId,
-                Value = BuildAsciiSourceText(4096),
-                KeyHandleMask = "565342976",
-                Type = KeyType.Block,
-                BlockSettings = new KeyBlockSettings {
-                    MinLength = 64,
-                    MaxLength = 128
-                }
-            });
-        }
-
-        return new KeyService(new KeyServiceOptions(Options.Create(config)));
-    }
-
-    private static void ResetKeyServiceOptionsState() {
-        var type = typeof(KeyServiceOptions);
-
-        type.GetField("_keys", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, null);
-        type.GetField("_keyMemory", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, null);
-        type.GetField("_keyBytes", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, null);
-        type.GetField("_keySourceIds", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, null);
-        type.GetField("_keyCount", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, 0);
-        type.GetField("_initialised", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, false);
-    }
-
-    private static string BuildAsciiSourceText(int length) {
-        return string.Create(length, length, static (span, targetLength) => {
-            for (int i = 0; i < targetLength; i++) {
-                span[i] = (char)('!' + (i % 90));
-            }
-        });
-    }
+    private IKeyService CreateKeyService(params byte[] keySourceIds) =>
+        environment.Create(keySourceIds.Length == 0 ? [0] : keySourceIds);
 
     private static byte[] ComputeExpectedHash(HashingAlgorithms algorithm, byte[] data) =>
         algorithm switch {

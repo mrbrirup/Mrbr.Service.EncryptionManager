@@ -2,6 +2,8 @@
 
 `Mrbr.Service.EncryptionManager` provides usage-agnostic cryptographic services for .NET. It performs cryptographic actions only and leaves caller-specific workflows outside this package.
 
+**Version: 3.0.0-preview.1.** Requires KeyManager 3. See [release notes](RELEASE_NOTES.md) and [downstream adoption](docs/downstream-3.0.md).
+
 ## Current Milestone
 
 Implemented:
@@ -36,26 +38,60 @@ If you are using KeyManager's `WebApplicationBuilder` helper, register KeyManage
 using Mrbr.Service.EncryptionManager.Extensions;
 using Mrbr.Service.KeyManager.Configuration;
 
-builder.ConfigureKeyService();
+builder.ConfigureKeyService(new KeyValidationOptions {
+    ApplicationId = "MyApplication",
+    // Enable only for deliberate first enrollment; disable after enrollment.
+    AllowInitialEnrollment = true
+});
 builder.Services.AddEncryptionManager();
 ```
 
-The equivalent service registrations are:
+For a generic host or non-hosted application, supply `KeyValidationOptions` and
+`IOptions<KeyServiceConfig>` when constructing KeyManager's singleton `KeyServiceOptions`,
+then register `IKeyService` and call `AddEncryptionManager()`. The console example supplies
+a deferred file loader so binding errors occur inside KeyManager's audit boundary.
 
-```csharp
-using Microsoft.Extensions.DependencyInjection;
-using Mrbr.Service.EncryptionManager.Extensions;
-using Mrbr.Service.KeyManager.Configuration;
-using Mrbr.Service.KeyManager.Services;
-
-services.Configure<KeyServiceConfig>(configuration.GetSection(nameof(KeyService)));
-services.AddSingleton<KeyServiceOptions>();
-services.AddSingleton<IKeyService, KeyService>();
-
-services.AddEncryptionManager();
-```
+Use a stable application identity and persistent history directory. Accept runtime candidates
+explicitly with `KeyServiceOptions.Reload(loader)` or `ApplyConfiguration(config)`; setting
+`reloadOnChange: true` alone does not change the accepted registry. A rejected update leaves
+the active registry unchanged. Configuration validation/history persistence and source states
+belong to KeyManager; source selection, enrollment approval and audit consumption belong to the host.
 
 `AddEncryptionManager()` registers EncryptionManager services only. It expects KeyManager's singleton `IKeyService` registration. If `IKeyService` is missing, resolving or running an operation that needs key material fails clearly through DI or constructor validation.
+
+## Key-source lifecycle
+
+| Operation | Key access | Enabled | Disabled / Retired |
+|---|---|---|---|
+| Encrypt / EncryptText / EncryptPostQuantum | Generate | Allowed | Rejected by KeyManager |
+| SignPostQuantum | Generate | Allowed | Rejected by KeyManager |
+| Hmac(sourceId, ...) | Generate | Allowed | Rejected by KeyManager |
+| Decrypt / DecryptText / DecryptPostQuantum | Replay | Allowed | Allowed |
+| VerifyPostQuantum / ValidateHmac | Replay | Allowed | Allowed |
+| HmacWithKeyHandle | Replay | Allowed | Allowed |
+| Hash / ValidateHash | None | Unaffected | Unaffected |
+
+The restriction is on **generating new keys**, not computing another HMAC using an existing
+key. EncryptionManager delegates this enforcement to KeyManager rather than duplicating its
+state checks. Existing signatures/HMACs must still validate and ciphertext must still decrypt
+while the source is disabled or retired. Re-enabling a disabled source restores generation;
+retirement is irreversible. Normal validation still rejects tampered artefacts.
+
+Rotation is explicit: load an enabled replacement source and pass its ID for new encryption,
+signing or fresh-key HMAC. EncryptionManager never silently selects a replacement. Existing
+handles continue to identify the original source. Configuration GUIDs are not added to cipher,
+signature or handle formats; index reuse remains a business-approved migration decision.
+
+Attempting generation from a disabled/retired source propagates KeyManager's
+`InvalidOperationException`. It is not a failed verification. Startup configuration rejection
+uses `KeyConfigurationException`; host code can correlate its attempt ID with
+`KeyConfigurationAudit.TryDequeue` records. External delivery, persistence, comparison and UI
+remain downstream. The audit queue is process-local and non-durable; consume it on startup-failure
+paths as well as during normal operation.
+
+EncryptionManager owns standard encryption, hashing, HMAC, signing and serialization. Downstream
+projects should call these operations directly and remove duplicate implementations or aliases
+that add no behaviour. Helpers that build project-specific domain-separated inputs remain appropriate.
 
 ## AES-GCM Artifacts
 
@@ -170,6 +206,10 @@ byte[] searchToken = cryptographicService.HmacWithKeyHandle(
     hmacOptions);
 ```
 
+`HmacWithKeyHandle` supports enabled, disabled and retired sources, including when computing a
+search token for a new lookup input. It replays the existing key; it does not create a key.
+There is no additional source-state restriction in EncryptionManager or the data layer.
+
 `HmacWithKeyHandle` returns only the HMAC bytes. It does not generate a new key or include the handle in the result. Reusing a handle is appropriate only for an explicitly designed deterministic domain; ordinary HMAC creation should continue using `Hmac(keySourceId, ...)` so it receives fresh KeyManager material.
 
 ## Artifact Serializers
@@ -233,4 +273,42 @@ dotnet test Mrbr.Service.EncryptionManager.slnx
 ## Requirements
 
 - .NET 11.0 or higher
-- `Mrbr.Service.KeyManager` 2.0.0 or higher
+- `Mrbr.Service.KeyManager` 3.0.0-preview.1 (including its serialization/exception dependencies)
+
+## Console smoke test
+
+The checked-in configuration is **public, disposable demo material**, never a production secret.
+It uses source 7 and a persistent GUID. The demo no longer reads the removed KeyServiceOptions.Value.
+To create a separate fresh demo file (existing files are never overwritten):
+
+```powershell
+dotnet run --project Mrbr.Service.EncryptionManager.ConsoleTest -- --create-demo-config C:/temp/demo-keys.json
+dotnet run --project Mrbr.Service.EncryptionManager.ConsoleTest -- --config C:/temp/demo-keys.json --history C:/temp/demo-key-history --enroll
+# Subsequent launch: use the same configuration/history, without enrollment permission.
+dotnet run --project Mrbr.Service.EncryptionManager.ConsoleTest -- --config C:/temp/demo-keys.json --history C:/temp/demo-key-history
+```
+
+The parent directory must exist. `--source ID` selects a source (default 7). Without `--history`,
+KeyManager uses the application's LocalApplicationData directory. A first launch without
+`--enroll` fails closed. The demo prints a round-trip result and non-secret audit artefacts;
+configuration rejection returns exit code 1 and drains audit records. It does not implement a
+watcher, delivery service or migration UI.
+
+## Local package validation
+
+Before KeyManager 3 is published, restore against its built package feed and compatible dependency
+packages. For example, with the sibling repositories present:
+
+```powershell
+dotnet pack ../Mrbr.System.Exceptions -c Release -o artifacts/dependencies
+dotnet pack ../Mrbr.System.Text.Json.Serialisation -c Release -o artifacts/dependencies
+dotnet pack ../Mrbr.Service.KeyManager/Mrbr.Service.KeyManager -c Release -o artifacts/dependencies
+dotnet restore Mrbr.Service.EncryptionManager.slnx --source artifacts/dependencies --source "https://api.nuget.org/v3/index.json"
+dotnet build Mrbr.Service.EncryptionManager.slnx -c Release --no-restore
+dotnet test Mrbr.Service.EncryptionManager.Tests -c Release --no-restore
+```
+
+Include any private feed needed for other Mrbr dependencies. Builds must use versioned packages;
+do not overwrite cached 2.0.0 contents with a newer DLL. Tests isolate KeyManager's process-wide
+registry using test-only reflection and temporary history directories; production must never use
+that reset mechanism. No production reset API or duplicate cryptographic implementation is added.
